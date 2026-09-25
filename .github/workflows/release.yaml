@@ -6,18 +6,28 @@
 # made there reaches every seeded repository without touching any of them.
 #
 # What releases, and when:
-#   • A push to main whose Chart.yaml carries a literal MAJOR.MINOR.PATCH version that has no tag yet.
-#     That is the merge of a blueprint's pull request. The version is tagged and released once; a later
-#     merge that leaves it unchanged releases nothing, so a second release needs a version bump.
-#   • A pushed semver tag, for a Chart.yaml that carries the CHART_VERSION placeholder (a page set) or
-#     that same literal version.
+#   • A push to main whose Chart.yaml carries a literal version (MAJOR.MINOR.PATCH, optionally with a
+#     lower-case -pre-release) that has no tag yet. That is the merge of a blueprint's pull request. The
+#     version is tagged and released once; a later merge that leaves it unchanged releases nothing, so
+#     a second release needs a version bump.
+#   • A manual run (workflow_dispatch) on main, by the same rules as a push to main. A manual run on
+#     any other branch or tag is refused.
+#   • A pushed tag (MAJOR.MINOR.PATCH, optionally with a lower-case -pre-release), for a Chart.yaml that
+#     carries the CHART_VERSION placeholder (a page set) or that same literal version.
 # A pull request runs the same checks and releases nothing, so its check says whether the merge can.
+#
+# Every version the Blueprint Composer lets a person Start at releases here: 0.1.0, 0.1.0-rc.1. Upper
+# case and build metadata (0.1.0-RC1, 0.1.0+build) are refused, as the composer refuses them:
+# core-provider serves a chart at version V as the API version v<V with dots as dashes>, and
+# Kubernetes refuses both in an API version.
 name: release
 
 on:
   push:
     branches: [main]
-    tags: ["[0-9]+.[0-9]+.[0-9]+"]
+    # A filter cannot say "lower case, no build metadata", so the second pattern admits more than a
+    # version; the resolve job refuses the rest.
+    tags: ["[0-9]+.[0-9]+.[0-9]+", "[0-9]+.[0-9]+.[0-9]+-*"]
   pull_request:
     branches: [main]
   workflow_dispatch: {}
@@ -64,13 +74,23 @@ jobs:
 
           name="$(sed -n 's/^name:[[:space:]]*//p' Chart.yaml | head -1 | tr -d "\"' ")"
           declared="$(sed -n 's/^version:[[:space:]]*//p' Chart.yaml | head -1 | tr -d "\"' ")"
+          # Every version the Blueprint Composer accepts (see the header). Refusing one the composer let
+          # a person Start at would strand the blueprint: the merge releases nothing, and the portal's
+          # Register still offers a version that was never published.
+          semver='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9a-z-]+(\.[0-9a-z-]+)*)?$'
           # Checked for every event, not only on main: a pull request whose check passes a version the
           # merge then refuses is a check that says the wrong thing.
-          if [ "$declared" != CHART_VERSION ] && ! printf '%s' "$declared" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::version '$declared' is not MAJOR.MINOR.PATCH (or the CHART_VERSION placeholder)"; exit 1
+          if [ "$declared" != CHART_VERSION ] && ! printf '%s' "$declared" | grep -Eq "$semver"; then
+            echo "::error::version '$declared' is not MAJOR.MINOR.PATCH, optionally with a lower-case -pre-release (or the CHART_VERSION placeholder)"; exit 1
           fi
           released=false
           if [ "$declared" != CHART_VERSION ] && git rev-parse -q --verify "refs/tags/$declared" >/dev/null; then released=true; fi
+
+          # A manual run releases main and nothing else. Run on any other branch or tag, it would tag and
+          # publish a commit nobody merged, and the reviewed merge would then find the version released.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::a manual run releases main only, not $GITHUB_REF"; exit 1
+          fi
 
           release=true; tag=false; version="$declared"
           case "${GITHUB_EVENT_NAME}:${GITHUB_REF_TYPE}" in
@@ -79,6 +99,10 @@ jobs:
               if [ "$released" = true ]; then echo "::warning::$declared is already released, so merging this releases nothing; bump Chart.yaml's version"; fi ;;
             push:tag)
               version="$GITHUB_REF_NAME"
+              # For a CHART_VERSION chart the tag IS the version, and the trigger's filter let through
+              # anything after the dash.
+              printf '%s' "$version" | grep -Eq "$semver" \
+                || { echo "::error::tag $version is not MAJOR.MINOR.PATCH, optionally with a lower-case -pre-release"; exit 1; }
               # The composer shows the API version as v<chart version>; a package at any other version
               # would serve a different API from the one the person saw.
               [ "$declared" = CHART_VERSION ] || [ "$declared" = "$version" ] || { echo "::error::tag $version but Chart.yaml is $declared"; exit 1; } ;;
