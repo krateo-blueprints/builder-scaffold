@@ -1,0 +1,19 @@
+# The chart IS the repository root: a builder publishes Chart.yaml, values.yaml, values.schema.json
+# and templates/ there. Without this file `helm package .` packs the repository with the chart —
+# .git/, .github/, the README, the registration file. Every entry below belongs to the repository,
+# not to the chart.
+#
+# Files that exist only at the root are anchored with a leading slash. Helm matches a name without a
+# slash at ANY depth, so an unanchored `*.tgz` would also drop charts/<dependency>.tgz and the package
+# would fail ("found in Chart.yaml, but missing in charts/ directory"), and an unanchored
+# `compositiondefinition.yaml` would drop a template of that name from a blueprint that deploys one.
+.git/
+.github/
+.gitignore
+.helmignore
+.krateoignore
+/dist/
+/*.tgz
+/README.md
+/CHANGELOG.md
+/compositiondefinition.yaml

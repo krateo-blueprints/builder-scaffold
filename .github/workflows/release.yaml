@@ -1,0 +1,180 @@
+# Releases the ONE chart at this repository's root to oci://ghcr.io/<owner>/charts/<name>.
+#
+# A Krateo builder (the Blueprint Composer or the Portal Builder) seeded this file from
+# krateo-blueprints/builder-scaffold. A seeded repository never receives scaffold updates, so this
+# file stays a thin wrapper: packaging and pushing live in the org's release-oci.yaml@main, and a fix
+# made there reaches every seeded repository without touching any of them.
+#
+# What releases, and when:
+#   • A push to main whose Chart.yaml carries a literal MAJOR.MINOR.PATCH version that has no tag yet.
+#     That is the merge of a blueprint's pull request. The version is tagged and released once; a later
+#     merge that leaves it unchanged releases nothing, so a second release needs a version bump.
+#   • A pushed semver tag, for a Chart.yaml that carries the CHART_VERSION placeholder (a page set) or
+#     that same literal version.
+# A pull request runs the same checks and releases nothing, so its check says whether the merge can.
+name: release
+
+on:
+  push:
+    branches: [main]
+    tags: ["[0-9]+.[0-9]+.[0-9]+"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+# Releases run one at a time: two runs deciding at once that a version has no tag would both try to
+# release it. A pull request's checks have a group of their own and never wait for a release.
+concurrency:
+  group: release-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.v.outputs.release }}
+      tag: ${{ steps.v.outputs.tag }}
+      version: ${{ steps.v.outputs.version }}
+      oci_repo: ${{ steps.v.outputs.oci_repo }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Every tag comes with the full history, and "has this version been released?" is a tag lookup.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - id: v
+        run: |
+          set -euo pipefail
+          # GHCR refuses upper case, and an org name may carry it.
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "oci_repo=oci://ghcr.io/${owner}/charts" >> "$GITHUB_OUTPUT"
+
+          # The seed commit reaches main before the builder's pull request does, and it has no chart.
+          if [ ! -f Chart.yaml ]; then
+            echo "::notice::no Chart.yaml at the root yet"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          n="$(find . -name Chart.yaml -not -path './.git/*' -not -path '*/charts/*' | wc -l)"
+          [ "$n" -eq 1 ] || { echo "::error::$n charts; a builder repo holds exactly one, at the root"; exit 1; }
+
+          name="$(sed -n 's/^name:[[:space:]]*//p' Chart.yaml | head -1 | tr -d "\"' ")"
+          declared="$(sed -n 's/^version:[[:space:]]*//p' Chart.yaml | head -1 | tr -d "\"' ")"
+          # Checked for every event, not only on main: a pull request whose check passes a version the
+          # merge then refuses is a check that says the wrong thing.
+          if [ "$declared" != CHART_VERSION ] && ! printf '%s' "$declared" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::version '$declared' is not MAJOR.MINOR.PATCH (or the CHART_VERSION placeholder)"; exit 1
+          fi
+          released=false
+          if [ "$declared" != CHART_VERSION ] && git rev-parse -q --verify "refs/tags/$declared" >/dev/null; then released=true; fi
+
+          release=true; tag=false; version="$declared"
+          case "${GITHUB_EVENT_NAME}:${GITHUB_REF_TYPE}" in
+            pull_request:*)
+              release=false
+              if [ "$released" = true ]; then echo "::warning::$declared is already released, so merging this releases nothing; bump Chart.yaml's version"; fi ;;
+            push:tag)
+              version="$GITHUB_REF_NAME"
+              # The composer shows the API version as v<chart version>; a package at any other version
+              # would serve a different API from the one the person saw.
+              [ "$declared" = CHART_VERSION ] || [ "$declared" = "$version" ] || { echo "::error::tag $version but Chart.yaml is $declared"; exit 1; } ;;
+            *)
+              if [ "$declared" = CHART_VERSION ]; then echo "::notice::placeholder version: release by pushing a semver tag"; release=false
+              elif [ "$released" = true ]; then echo "::notice::$declared already released; bump Chart.yaml"; release=false
+              else tag=true; fi ;;
+          esac
+
+          # The registration file must register what this repository publishes, or Register would
+          # install a chart that is not this one, or one that does not exist.
+          if [ -f compositiondefinition.yaml ]; then
+            cd_name="$(awk '/^metadata:/{m=1;next} m&&/^[[:space:]]+name:/{print $2;exit}' compositiondefinition.yaml | tr -d "\"' ")"
+            cd_url="$(sed -n 's/^[[:space:]]*url:[[:space:]]*//p' compositiondefinition.yaml | head -1 | tr -d "\"' ")"
+            cd_ver="$(sed -n 's/^[[:space:]]*version:[[:space:]]*//p' compositiondefinition.yaml | head -1 | tr -d "\"' ")"
+            [ "$cd_name" = "$name" ] || { echo "::error::CD registers '$cd_name', chart is '$name'"; exit 1; }
+            [ "$cd_url" = "oci://ghcr.io/${owner}/charts/${name}" ] || { echo "::error::CD url $cd_url is not what this repo publishes"; exit 1; }
+            case "$cd_ver" in CHART_VERSION|"$declared") ;; *) echo "::error::CD version $cd_ver != Chart.yaml $declared"; exit 1 ;; esac
+          fi
+          { echo "release=$release"; echo "tag=$tag"; echo "version=$version"; } >> "$GITHUB_OUTPUT"
+
+      - uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      # The chart IS the repository root, so without .helmignore the package carries .git/ and .github/
+      # too. Checked on every run, pull requests included, so a broken .helmignore is caught before a
+      # merge rather than after a release.
+      - name: the package carries the chart, not the repository
+        run: |
+          set -euo pipefail
+          [ -f Chart.yaml ] || exit 0
+          sed -i 's/CHART_VERSION/0.0.0-check/g' Chart.yaml
+          # As release-oci does: charts/ is not committed, and a chart that declares dependencies does
+          # not package until they are fetched.
+          if grep -q '^dependencies:' Chart.yaml; then
+            helm dependency build . >/dev/null 2>&1 || helm dependency update . >/dev/null 2>&1 || true
+          fi
+          helm package . -d "$RUNNER_TEMP/pkg" >/dev/null
+          if tar tzf "$RUNNER_TEMP"/pkg/*.tgz | grep -E '^[^/]+/(\.git|\.github)/'; then
+            echo "::error::.helmignore must exclude .git/ and .github/"; exit 1
+          fi
+
+  # A tag pushed with GITHUB_TOKEN starts no new run, so the package is built by THIS run's oci job.
+  # If someone else pushed the tag first, the push is refused and nothing is released twice.
+  tag:
+    needs: resolve
+    if: needs.resolve.outputs.tag == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: git tag "$VERSION" "$GITHUB_SHA" && git push origin "refs/tags/$VERSION"
+
+  oci:
+    needs: [resolve, tag]
+    # `tag` is skipped for a pushed tag; only its failure stops the release.
+    if: ${{ !cancelled() && needs.resolve.outputs.release == 'true' && needs.tag.result != 'failure' }}
+    uses: krateo-platformops/.github/.github/workflows/release-oci.yaml@main
+    permissions:
+      contents: read
+      packages: write
+    with:
+      chart_version: ${{ needs.resolve.outputs.version }}
+      oci_repo: ${{ needs.resolve.outputs.oci_repo }}
+      chart_root: "."
+
+  # After the push, deliberately: the chart is the release, and an asset problem must never stop it
+  # from shipping. The release carries the registration file stamped with the version it registers,
+  # because the copy on main still says CHART_VERSION for a page set.
+  registration:
+    needs: [resolve, oci]
+    if: ${{ !cancelled() && needs.oci.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          R="$GITHUB_REPOSITORY"
+          gh release view "$VERSION" -R "$R" >/dev/null 2>&1 \
+            || gh release create "$VERSION" -R "$R" --verify-tag --title "$VERSION" \
+                 --notes "Register $VERSION from the Krateo portal (builder deliverables -> Register), or apply the attached compositiondefinition.yaml."
+          # GHCR gives a new package its repository's visibility.
+          if [ "$(gh api "repos/$R" --jq .private)" = true ]; then
+            echo "::warning::private repo -> private GHCR package; registering needs chart.credentials"
+          fi
+          [ -f compositiondefinition.yaml ] || exit 0
+          sed -i "s/CHART_VERSION/${VERSION}/g" compositiondefinition.yaml
+          gh release upload "$VERSION" compositiondefinition.yaml -R "$R" --clobber

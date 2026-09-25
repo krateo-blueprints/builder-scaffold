@@ -1,0 +1,5 @@
+# Build output, never source. charts/ holds the dependencies `helm dependency build` fetches at
+# release time; dist/ and *.tgz are what `helm package` writes.
+charts/
+*.tgz
+dist/
