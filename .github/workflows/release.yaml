@@ -63,7 +63,8 @@ jobs:
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           echo "oci_repo=oci://ghcr.io/${owner}/charts" >> "$GITHUB_OUTPUT"
 
-          # The seed commit reaches main before the builder's pull request does, and it has no chart.
+          # A push to main that carries no chart (an edit before the builder's pull request is merged)
+          # releases nothing.
           if [ ! -f Chart.yaml ]; then
             echo "::notice::no Chart.yaml at the root yet"
             echo "release=false" >> "$GITHUB_OUTPUT"

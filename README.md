@@ -5,10 +5,10 @@ Builder both point at it (`AUTOPILOT_BLUEPRINT_BUILDER_TEMPLATE` and `AUTOPILOT_
 in the frontend chart). On a first publish, the builder creates the destination repository and copies
 this one into it whole. The chart itself arrives afterwards, as the builder's pull request.
 
-It holds no chart, no CompositionDefinition and no `.krateoignore`. Anything seeded here would land on
-the destination's `main` before the pull request does, and the builder never overwrites a file that
-already exists. So a chart or a registration file in the scaffold would shadow the one the person
-actually built.
+It holds no chart, no CompositionDefinition and no `.krateoignore`. The builder copies it onto the
+pull request's branch (`builder/<name>`) before it commits the person's files there, and it never
+overwrites a file that already exists — so a chart or a registration file in the scaffold would shadow
+the one the person actually built. `main` receives none of it until the pull request is merged.
 
 ## What a seeded repository gets
 
