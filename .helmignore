@@ -17,3 +17,6 @@
 /README.md
 /CHANGELOG.md
 /compositiondefinition.yaml
+# A blueprint's status projection (the <chart>-status RESTAction + its apiRef rows): the portal's Install
+# step applies it beside the registration file, so, like that file, it belongs to the repository.
+/status-projection.json
