@@ -14,7 +14,7 @@ the one the person actually built. `main` receives none of it until the pull req
 
 | File | Why |
 | --- | --- |
-| `.github/workflows/release.yaml` | Releases the chart. It is a thin wrapper around `krateo-platformops/.github` `release-oci.yaml@main`, because a seeded repository never receives scaffold updates. Packaging fixes land in the org workflow and reach every repository from there. |
+| `.github/workflows/release.yaml` | Releases the chart. It is a thin wrapper around `krateo-platformops/.github` `release-oci.yaml@main` and `krateo-blueprints/charts` `publish-chart.yaml@main`, because a seeded repository never receives scaffold updates. Packaging and index fixes land in those workflows and reach every repository from there. |
 | `.helmignore` | The chart sits at the repository root, so without it the package would carry `.git/`, `.github/` and the other repository files. |
 | `.gitignore` | Keeps build output (`charts/`, `dist/`, `*.tgz`) out of git. |
 
@@ -37,8 +37,9 @@ The package is published as `oci://ghcr.io/<owner>/charts/<chart name>`.
 `v0-1-0` (or `v0-2-0-rc-1`). When the pull request is merged, the workflow:
 
 1. tags that commit with the version,
-2. packages and pushes the chart at that version, and
-3. creates a GitHub release with `compositiondefinition.yaml` attached.
+2. packages and pushes the chart at that version,
+3. creates a GitHub release with `compositiondefinition.yaml` attached, and
+4. adds the chart to the Marketplace's blueprints index (see below).
 
 This happens once per version. A merge that leaves the version unchanged releases nothing, and the
 pull request's check warns about it beforehand. To release again, bump the version in `Chart.yaml`.
@@ -67,6 +68,38 @@ its version already released.
 
 If the chart push fails after the tag has been cut, re-run the failed jobs of that same run. A new
 run finds the tag and treats the version as already released.
+
+## The Marketplace
+
+The portal's Marketplace lists the blueprints index at
+`https://krateo-blueprints.github.io/charts/blueprints/index.yaml`. After the push, the release
+packages the chart once more for that index and hands it to `krateo-blueprints/charts`
+`publish-chart.yaml@main`, which stores the package in that repository's releases and merges its
+entry into the index. The portal reads the live index beside its curated catalog, so the blueprint
+gets a card, and an Install that pre-fills it, without a new catalog release.
+
+That package differs from the OCI one in two ways only: it carries `compositiondefinition.yaml`
+(stamped with the version), because the index takes only full blueprints, and its `Chart.yaml`
+carries `krateo.io/source-repo: <owner>/<repo>`. The index treats that annotation as the name's
+owner, and the portal lists a live-index chart only when it carries one. Every other annotation,
+`krateo.io/category` included, is the one committed in `Chart.yaml`; none is added when absent, so
+a chart with no category shows none.
+
+The chart is not added, and a warning in the run says why, when:
+
+- no token may write to `krateo-blueprints/charts`. The release uses the org secret
+  `CHARTS_PUBLISH_TOKEN`, or `RELEASE_FEED_TOKEN` when that is not set, and tries it read-only
+  first: a token that is missing (any repository outside the `krateo-blueprints` org), refused, or
+  without push there is a warning, not a red run,
+- the chart is a page set (`CHART_VERSION`): the Marketplace lists blueprints,
+- `values.schema.json`, `compositiondefinition.yaml` or an `https://` `icon` in `Chart.yaml` is
+  missing, which the index refuses, or
+- the index already has a chart of that name from anywhere else. Rename the chart to list it.
+
+None of these fails the release. The chart is already pushed and registrable from the portal. A
+refusal the read-only check cannot foresee (a protected `gh-pages`, a name taken between the check
+and the merge) still fails the `index` job: it calls `publish-chart.yaml` as a reusable workflow,
+and GitHub does not allow `continue-on-error` on such a job. Re-run it once the cause is fixed.
 
 ## Registering the chart
 
