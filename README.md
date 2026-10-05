@@ -87,14 +87,19 @@ a chart with no category shows none.
 
 The chart is not added, and a warning in the run says why, when:
 
-- the org secret `CHARTS_PUBLISH_TOKEN` is not available to the repository (any repository outside
-  the `krateo-blueprints` org, or the org before the secret exists),
+- no token may write to `krateo-blueprints/charts`. The release uses the org secret
+  `CHARTS_PUBLISH_TOKEN`, or `RELEASE_FEED_TOKEN` when that is not set, and tries it read-only
+  first: a token that is missing (any repository outside the `krateo-blueprints` org), refused, or
+  without push there is a warning, not a red run,
 - the chart is a page set (`CHART_VERSION`): the Marketplace lists blueprints,
 - `values.schema.json`, `compositiondefinition.yaml` or an `https://` `icon` in `Chart.yaml` is
   missing, which the index refuses, or
 - the index already has a chart of that name from anywhere else. Rename the chart to list it.
 
-None of these fails the release. The chart is already pushed and registrable from the portal.
+None of these fails the release. The chart is already pushed and registrable from the portal. A
+refusal the read-only check cannot foresee (a protected `gh-pages`, a name taken between the check
+and the merge) still fails the `index` job: it calls `publish-chart.yaml` as a reusable workflow,
+and GitHub does not allow `continue-on-error` on such a job. Re-run it once the cause is fixed.
 
 ## Registering the chart
 

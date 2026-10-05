@@ -18,8 +18,9 @@
 #
 # A released blueprint is then added to the Marketplace's blueprints index
 # (krateo-blueprints/charts publish-chart.yaml), where the portal finds it without a catalog release.
-# That needs the krateo-blueprints org secret CHARTS_PUBLISH_TOKEN; without it, or for a chart the
-# index would refuse, the jobs say why in a warning and the release stands as it is.
+# That needs a token that may write to krateo-blueprints/charts: the org secret CHARTS_PUBLISH_TOKEN,
+# or else RELEASE_FEED_TOKEN. Without one, or for a chart the index would refuse, the jobs say why
+# in a warning and the release stands as it is.
 #
 # Every version the Blueprint Composer lets a person Start at releases here: 0.1.0, 0.1.0-rc.1. Upper
 # case and build metadata (0.1.0-RC1, 0.1.0+build) are refused, as the composer refuses them:
@@ -214,6 +215,14 @@ jobs:
   # merged into it here and gets its card without anyone releasing the catalog. After the push, like
   # the registration: the chart is the release, and nothing about the index may stop it shipping or
   # turn the run red. Every reason not to publish is a ::warning:: and a skip, never a failure.
+  #
+  # The token the publisher gets is CHARTS_PUBLISH_TOKEN, the krateo-blueprints org secret meant for
+  # it, and when that is not set, RELEASE_FEED_TOKEN, the org's existing cross-repository token (it
+  # publishes release notes). Whether the second may write to krateo-blueprints/charts depends on
+  # how it was issued, and publish-chart.yaml is a called workflow: a job that calls one cannot
+  # continue-on-error, so a token the publisher is refused would turn this run red after the release
+  # shipped. The token is therefore tried here first, read-only, and the index is skipped with a
+  # warning unless it may write there.
   index-package:
     needs: [resolve, oci]
     if: ${{ !cancelled() && needs.oci.result == 'success' }}
@@ -221,29 +230,59 @@ jobs:
     outputs:
       publish: ${{ steps.p.outputs.publish }}
     steps:
-      - uses: actions/checkout@v5
+      # Read-only: one GET of the publisher's repository with the token the index job will pass. A
+      # repository outside the krateo-blueprints org gets neither secret, and stays out of the index.
+      - id: token
+        env:
+          PUBLISH_TOKEN: ${{ secrets.CHARTS_PUBLISH_TOKEN || secrets.RELEASE_FEED_TOKEN }}
+          WHICH: ${{ secrets.CHARTS_PUBLISH_TOKEN != '' && 'CHARTS_PUBLISH_TOKEN' || 'RELEASE_FEED_TOKEN' }}
+          CHARTS_REPO: krateo-blueprints/charts
+        run: |
+          set -euo pipefail
+          echo "ok=false" >> "$GITHUB_OUTPUT"
+          if [ -z "$PUBLISH_TOKEN" ]; then
+            echo "::warning::neither CHARTS_PUBLISH_TOKEN nor RELEASE_FEED_TOKEN is set: the chart is released but not added to the Marketplace's blueprints index"; exit 0
+          fi
+          code="$(curl -sS -o "$RUNNER_TEMP/repo.json" -D "$RUNNER_TEMP/headers" -w '%{http_code}' \
+                    -H "Authorization: Bearer $PUBLISH_TOKEN" -H 'Accept: application/vnd.github+json' \
+                    "https://api.github.com/repos/$CHARTS_REPO")" || code=000
+          if [ "$code" != 200 ]; then
+            echo "::warning::$WHICH was refused reading $CHARTS_REPO (HTTP $code): the chart is released but not added to the Marketplace's blueprints index"; exit 0
+          fi
+          # The publisher creates releases and pushes gh-pages there: both need push.
+          if [ "$(jq -r '.permissions.push // false' "$RUNNER_TEMP/repo.json")" != true ]; then
+            echo "::warning::$WHICH may not write to $CHARTS_REPO: the chart is released but not added to the Marketplace's blueprints index"; exit 0
+          fi
+          # A classic token names its scopes, and writing needs repo (or public_repo, the repository
+          # being public) whatever the account behind it may do.
+          if grep -qi '^x-oauth-scopes:' "$RUNNER_TEMP/headers"; then
+            scopes="$(sed -n 's/^x-oauth-scopes:[[:space:]]*//Ip' "$RUNNER_TEMP/headers" | tr -d '\r')"
+            if ! printf '%s' "$scopes" | tr -d ' ' | tr ',' '\n' | grep -Eqx 'repo|public_repo'; then
+              echo "::warning::$WHICH has scopes '$scopes', none of which writes to $CHARTS_REPO: the chart is released but not added to the Marketplace's blueprints index"; exit 0
+            fi
+          fi
+          echo "::notice::the blueprints index is published with $WHICH"
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - if: steps.token.outputs.ok == 'true'
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
 
-      - uses: azure/setup-helm@v5.0.0
+      - if: steps.token.outputs.ok == 'true'
+        uses: azure/setup-helm@v5.0.0
         with:
           version: v3.19.0
 
       - id: p
+        if: steps.token.outputs.ok == 'true'
         env:
-          # Whether the token is there, not the token: this job never writes anywhere.
-          HAS_TOKEN: ${{ secrets.CHARTS_PUBLISH_TOKEN != '' }}
           VERSION: ${{ needs.resolve.outputs.version }}
           SRC: ${{ github.repository }}
           INDEX_URL: https://krateo-blueprints.github.io/charts/blueprints/index.yaml
         run: |
           set -euo pipefail
           echo "publish=false" >> "$GITHUB_OUTPUT"
-          # An org secret of krateo-blueprints (CHARTS_PUBLISH_TOKEN). A repository outside that org,
-          # or the org before the secret exists, releases its chart and stays out of the index.
-          if [ "$HAS_TOKEN" != true ]; then
-            echo "::warning::CHARTS_PUBLISH_TOKEN is not set: $VERSION is released but not added to the Marketplace's blueprints index"; exit 0
-          fi
           # A page set (the CHART_VERSION placeholder) is portal pages, not a Marketplace blueprint.
           declared="$(sed -n 's/^version:[[:space:]]*//p' Chart.yaml | head -1 | tr -d "\"' ")"
           if [ "$declared" = CHART_VERSION ]; then
@@ -317,7 +356,11 @@ jobs:
           retention-days: 1
 
   # krateo-blueprints/charts uploads the package to its Releases and merges its entry into the
-  # blueprints channel index on gh-pages, which the Marketplace reads.
+  # blueprints channel index on gh-pages, which the Marketplace reads. The token is the one the
+  # token step above tried (see index-package). This job cannot continue-on-error (GitHub refuses
+  # the key on a job that calls a workflow), so what the token step cannot see beforehand, such as
+  # a branch protection on gh-pages or a name collision, still shows here as a failed job; the
+  # chart, its tag and its GitHub release are already out by then.
   index:
     needs: [resolve, index-package]
     if: ${{ !cancelled() && needs.index-package.outputs.publish == 'true' }}
@@ -329,4 +372,4 @@ jobs:
       git_tag: ${{ needs.resolve.outputs.version }}
       channel: blueprints
     secrets:
-      PUBLISH_TOKEN: ${{ secrets.CHARTS_PUBLISH_TOKEN }}
+      PUBLISH_TOKEN: ${{ secrets.CHARTS_PUBLISH_TOKEN || secrets.RELEASE_FEED_TOKEN }}
