@@ -371,7 +371,7 @@ jobs:
     # Pinned to the publisher's release by its full commit SHA, never a branch or a tag: it receives an
     # org-wide write token, and a SHA cannot move (PUBLISHING.md rule 9). Dependabot
     # (.github/dependabot.yml) proposes each upgrade as a pull request.
-    uses: krateo-blueprints/charts/.github/workflows/publish-chart.yaml@36ea357cb0fe4b49628cc984d9939babf0049d03 # 1.0.1
+    uses: krateo-blueprints/charts/.github/workflows/publish-chart.yaml@f0138e816ce827279ad087202889c009899741f7 # 1.0.2
     permissions:
       contents: read
     with:
