@@ -204,6 +204,14 @@ jobs:
           if [ -z "${GH_TOKEN}" ]; then
             echo "::error::the org secret CHARTS_PUBLISH_TOKEN is not available to this repository, so the release could not reach the helm index. Nothing was tagged or pushed."; exit 1
           fi
+          # A token with whitespace or a control character in it (usually a trailing newline from
+          # `echo ... | gh secret set`) passes the API, which trims it, then breaks git in the
+          # publisher after GHCR already holds the version (PUBLISHING.md rule 7). Refused here, the
+          # same way the publisher refuses it, and never printed.
+          case "${GH_TOKEN}" in
+            *[[:space:]]*|*[[:cntrl:]]*)
+              echo "::error::CHARTS_PUBLISH_TOKEN contains whitespace or a control character, usually a trailing newline. Re-save the org secret by pasting the token at the prompt of 'gh secret set CHARTS_PUBLISH_TOKEN --org krateo-blueprints --visibility all' (not piped from echo). Nothing was tagged or pushed."; exit 1 ;;
+          esac
           if ! push="$(gh api repos/krateo-blueprints/charts --jq .permissions.push 2>&1)"; then
             echo "::error::CHARTS_PUBLISH_TOKEN does not authenticate (${push}): expired, revoked or mistyped. Nothing was tagged or pushed."; exit 1
           fi
@@ -363,7 +371,7 @@ jobs:
     # Pinned to the publisher's release by its full commit SHA, never a branch or a tag: it receives an
     # org-wide write token, and a SHA cannot move (PUBLISHING.md rule 9). Dependabot
     # (.github/dependabot.yml) proposes each upgrade as a pull request.
-    uses: krateo-blueprints/charts/.github/workflows/publish-chart.yaml@a2d63ba50e138b17f678528d6d6be3afef48715a # 1.0.0
+    uses: krateo-blueprints/charts/.github/workflows/publish-chart.yaml@36ea357cb0fe4b49628cc984d9939babf0049d03 # 1.0.1
     permissions:
       contents: read
     with:
