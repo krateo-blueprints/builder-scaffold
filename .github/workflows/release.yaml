@@ -360,10 +360,10 @@ jobs:
       - resolve
       - index-archive
     if: ${{ !cancelled() && needs.index-archive.result == 'success' }}
-    # Pinned to the publisher's release, never a branch: it receives an org-wide write token. Replace
-    # 1.0.0 with that release's full commit SHA and keep "# 1.0.0" after it (PUBLISHING.md rule 9);
-    # Dependabot (.github/dependabot.yml) then proposes each upgrade as a pull request.
-    uses: krateo-blueprints/charts/.github/workflows/publish-chart.yaml@1.0.0
+    # Pinned to the publisher's release by its full commit SHA, never a branch or a tag: it receives an
+    # org-wide write token, and a SHA cannot move (PUBLISHING.md rule 9). Dependabot
+    # (.github/dependabot.yml) proposes each upgrade as a pull request.
+    uses: krateo-blueprints/charts/.github/workflows/publish-chart.yaml@a2d63ba50e138b17f678528d6d6be3afef48715a # 1.0.0
     permissions:
       contents: read
     with:
