@@ -14,8 +14,9 @@ the one the person actually built. `main` receives none of it until the pull req
 
 | File | Why |
 | --- | --- |
-| `.github/workflows/release.yaml` | Releases the chart. It is a thin wrapper around `krateo-platformops/.github` `release-oci.yaml@main` and `krateo-blueprints/charts` `publish-chart.yaml@main`, because a seeded repository never receives scaffold updates. Packaging and index fixes land in those workflows and reach every repository from there. |
-| `.helmignore` | The chart sits at the repository root, so without it the package would carry `.git/`, `.github/` and the other repository files. |
+| `.github/workflows/release.yaml` | Releases the chart. It is a thin wrapper around `krateo-platformops/.github` `release-oci.yaml@main`, which packages and pushes, and, in `krateo-blueprints`, `krateo-blueprints/charts` `publish-chart.yaml`, which adds the chart to the organisation's helm index. A seeded repository never receives scaffold updates, so packaging fixes land in release-oci and reach every repository from there. The publisher is pinned to a release, not a branch, because it receives an org-wide write token. |
+| `.github/dependabot.yml` | Proposes each new publisher release, and other action upgrades, as a pull request. |
+| `.helmignore` | The chart sits at the repository root, so without it the package would carry `.git/`, `.github/` and the other repository files. It does not exclude `compositiondefinition.yaml`, which ships inside the package. |
 | `.gitignore` | Keeps build output (`charts/`, `dist/`, `*.tgz`) out of git. |
 
 This README is not copied. The destination repository is created with its own README, and the copy
@@ -37,9 +38,9 @@ The package is published as `oci://ghcr.io/<owner>/charts/<chart name>`.
 `v0-1-0` (or `v0-2-0-rc-1`). When the pull request is merged, the workflow:
 
 1. tags that commit with the version,
-2. packages and pushes the chart at that version,
+2. packages and pushes the chart at that version, with its `compositiondefinition.yaml` inside,
 3. creates a GitHub release with `compositiondefinition.yaml` attached, and
-4. adds the chart to the Marketplace's blueprints index (see below).
+4. in `krateo-blueprints`, adds the chart to the organisation's helm index (see below).
 
 This happens once per version. A merge that leaves the version unchanged releases nothing, and the
 pull request's check warns about it beforehand. To release again, bump the version in `Chart.yaml`.
@@ -52,8 +53,9 @@ on a commit that is on `main`:
 git tag 0.1.0 origin/main && git push origin 0.1.0
 ```
 
-The release stamps the tag into `Chart.yaml` and into the `compositiondefinition.yaml` attached to the
-GitHub release. The copy on `main` keeps the placeholder.
+The release stamps the tag into `Chart.yaml` and into `compositiondefinition.yaml`, both the copy in
+the package and the one attached to the GitHub release. The copy on `main` keeps the placeholder.
+A page set also needs `annotations: krateo.io/kind: page-set` in `Chart.yaml` (see below).
 
 A tag on a literal-version chart must match `Chart.yaml`. Anything else is refused, because the
 package would then serve a different API version from the one the composer showed. Upper case and
@@ -69,37 +71,43 @@ its version already released.
 If the chart push fails after the tag has been cut, re-run the failed jobs of that same run. A new
 run finds the tag and treats the version as already released.
 
-## The Marketplace
+## The helm index and the Marketplace
 
-The portal's Marketplace lists the blueprints index at
-`https://krateo-blueprints.github.io/charts/blueprints/index.yaml`. After the push, the release
-packages the chart once more for that index and hands it to `krateo-blueprints/charts`
-`publish-chart.yaml@main`, which stores the package in that repository's releases and merges its
-entry into the index. The portal reads the live index beside its curated catalog, so the blueprint
-gets a card, and an Install that pre-fills it, without a new catalog release.
+In `krateo-blueprints`, every released chart is also added to the organisation's helm index, which
+the portal's Marketplace installs from. The rules are krateo-blueprints/charts
+[PUBLISHING.md](https://github.com/krateo-blueprints/charts/blob/main/PUBLISHING.md). A repository
+this scaffold seeded in any other account, or on a self-hosted SCM, releases to its own registry and
+skips everything in this section.
 
-That package differs from the OCI one in two ways only: it carries `compositiondefinition.yaml`
-(stamped with the version), because the index takes only full blueprints, and its `Chart.yaml`
-carries `krateo.io/source-repo: <owner>/<repo>`. The index treats that annotation as the name's
-owner, and the portal lists a live-index chart only when it carries one. Every other annotation,
-`krateo.io/category` included, is the one committed in `Chart.yaml`; none is added when absent, so
-a chart with no category shows none.
+**Which channel.** The content decides, by the publisher's rule:
 
-The chart is not added, and a warning in the run says why, when:
+| The chart has | Channel | On the Marketplace |
+| --- | --- | --- |
+| `compositiondefinition.yaml` and `values.schema.json` | `blueprints` | yes, as a card |
+| the same, and `annotations: krateo.io/kind: page-set` in `Chart.yaml` | `pages` | no |
+| no `compositiondefinition.yaml` | `operators` | no |
 
-- no token may write to `krateo-blueprints/charts`. The release uses the org secret
-  `CHARTS_PUBLISH_TOKEN`, or `RELEASE_FEED_TOKEN` when that is not set, and tries it read-only
-  first: a token that is missing (any repository outside the `krateo-blueprints` org), refused, or
-  without push there is a warning, not a red run,
-- the chart is a page set (`CHART_VERSION`): the Marketplace lists blueprints,
-- `values.schema.json`, `compositiondefinition.yaml` or an `https://` `icon` in `Chart.yaml` is
-  missing, which the index refuses, or
-- the index already has a chart of that name from anywhere else. Rename the chart to list it.
+**What `Chart.yaml` must carry.** The release refuses a chart without these, on the pull request
+already, so a merge never releases a chart the index then turns away:
 
-None of these fails the release. The chart is already pushed and registrable from the portal. A
-refusal the read-only check cannot foresee (a protected `gh-pages`, a name taken between the check
-and the merge) still fails the `index` job: it calls `publish-chart.yaml` as a reusable workflow,
-and GitHub does not allow `continue-on-error` on such a job. Re-run it once the cause is fixed.
+- `sources:` listing `https://github.com/<owner>/<repo>`, this repository;
+- `annotations: krateo.io/source-repo: <owner>/<repo>`. It names the chart's owner in the index,
+  and the portal gives a live-index chart a Marketplace card only when it carries one;
+- for `blueprints` and `pages`: an `https://` `icon`, and `keywords:`, which the Marketplace shows
+  as tags.
+
+A chart with the `CHART_VERSION` placeholder and a registration file must also carry
+`krateo.io/kind: page-set`. Otherwise it would be listed on the Marketplace as a blueprint.
+
+**How it gets there.** Before anything is tagged or pushed, the release checks that the org secret
+`CHARTS_PUBLISH_TOKEN` can write to `krateo-blueprints/charts`. A missing or dead token fails the
+release there. After the push, the release pulls the archive back from GHCR, the same bytes, with
+the stamped `compositiondefinition.yaml` inside, and hands it to `publish-chart.yaml`. That workflow
+stores it, merges it into the channel's index, and succeeds only once the served index lists it
+and an anonymous `helm pull` installs it. A failure anywhere in this section fails the release.
+
+A version published before release-oci shipped the registration file inside the package has an
+archive without one. That version is never replaced, so it cannot be listed. Release a new version.
 
 ## Registering the chart
 
