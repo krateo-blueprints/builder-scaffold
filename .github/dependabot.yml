@@ -1,0 +1,10 @@
+# Proposes upgrades of the workflows this repository calls, as pull requests. The organisation's
+# chart publisher (krateo-blueprints/charts publish-chart.yaml) is pinned to a release and receives
+# an org-wide write token, so a new release reaches this repository only as a reviewed pull request
+# (krateo-blueprints/charts PUBLISHING.md, rule 9).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

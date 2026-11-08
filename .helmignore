@@ -1,12 +1,16 @@
 # The chart IS the repository root: a builder publishes Chart.yaml, values.yaml, values.schema.json
 # and templates/ there. Without this file `helm package .` packs the repository with the chart —
-# .git/, .github/, the README, the registration file. Every entry below belongs to the repository,
-# not to the chart.
+# .git/, .github/, the README. Every entry below belongs to the repository, not to the chart.
+#
+# The registration file, compositiondefinition.yaml, is NOT listed: it ships inside the package.
+# The organisation's helm index takes the archive GHCR holds and refuses a blueprint whose archive
+# does not register itself (krateo-blueprints/charts PUBLISHING.md, rules 1 and 3), so release-oci
+# stamps it with the version and checks it is there before it pushes. Helm never renders a file at
+# the chart root, so shipping it installs nothing.
 #
 # Files that exist only at the root are anchored with a leading slash. Helm matches a name without a
 # slash at ANY depth, so an unanchored `*.tgz` would also drop charts/<dependency>.tgz and the package
-# would fail ("found in Chart.yaml, but missing in charts/ directory"), and an unanchored
-# `compositiondefinition.yaml` would drop a template of that name from a blueprint that deploys one.
+# would fail ("found in Chart.yaml, but missing in charts/ directory").
 .git/
 .github/
 .gitignore
@@ -16,7 +20,6 @@
 /*.tgz
 /README.md
 /CHANGELOG.md
-/compositiondefinition.yaml
 # A blueprint's status projection (the <chart>-status RESTAction + its apiRef rows): the portal's Install
-# step applies it beside the registration file, so, like that file, it belongs to the repository.
+# step applies it beside the registration file, so it belongs to the repository.
 /status-projection.json
