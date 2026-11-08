@@ -173,12 +173,21 @@ jobs:
             fi
             # What the index refuses (publish-chart.yaml's content gate, PUBLISHING.md rule 3), refused
             # here, before a merge can release a chart the index then turns away.
+            # GitHub owner and repository names are case-insensitive, and the builders write them as the
+            # author typed them, so names are compared lower-cased, and a trailing slash on a source is
+            # accepted: the publisher's own comparison (publish-chart.yaml 1.0.3). Read into variables
+            # and matched with here-strings: `... | grep -q` can kill the writer with SIGPIPE, and under
+            # pipefail that fails the test exactly when the match is there.
+            lc() { tr '[:upper:]' '[:lower:]'; }
             src_url="https://github.com/${GITHUB_REPOSITORY}"
-            SRC_URL="$src_url" yq -e '(.sources // [])[] | select(. == strenv(SRC_URL))' Chart.yaml >/dev/null 2>&1 \
+            src_lc="$(lc <<< "$src_url")"
+            sources_lc="$(yq -r '.sources // [] | .[]' Chart.yaml | lc | sed 's#/*$##')"
+            grep -qxF "$src_lc" <<< "$sources_lc" \
               || problems+=("Chart.yaml needs 'sources:' listing ${src_url}")
             # The repository that released it: the index's owner of the name (rule 6), and what the
-            # portal requires before it gives a live-index chart a Marketplace card.
-            [ "$(yq -r '.annotations["krateo.io/source-repo"] // ""' Chart.yaml)" = "$GITHUB_REPOSITORY" ] \
+            # portal requires before it gives a live-index chart a Marketplace card. Compared lower-cased,
+            # as the publisher's ownership guard compares owners.
+            [ "$(yq -r '.annotations["krateo.io/source-repo"] // ""' Chart.yaml | lc)" = "$(lc <<< "$GITHUB_REPOSITORY")" ] \
               || problems+=("Chart.yaml needs 'annotations: krateo.io/source-repo: ${GITHUB_REPOSITORY}'")
             if [ "$channel" != operators ]; then
               case "$(yq -r '.icon // ""' Chart.yaml)" in https://*) ;; *) problems+=("Chart.yaml needs an https 'icon'") ;; esac
@@ -371,7 +380,7 @@ jobs:
     # Pinned to the publisher's release by its full commit SHA, never a branch or a tag: it receives an
     # org-wide write token, and a SHA cannot move (PUBLISHING.md rule 9). Dependabot
     # (.github/dependabot.yml) proposes each upgrade as a pull request.
-    uses: krateo-blueprints/charts/.github/workflows/publish-chart.yaml@f0138e816ce827279ad087202889c009899741f7 # 1.0.2
+    uses: krateo-blueprints/charts/.github/workflows/publish-chart.yaml@ae5e19976a126abf5fb99c14c78180885ef3c97b # 1.0.3
     permissions:
       contents: read
     with:
