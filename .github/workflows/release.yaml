@@ -171,7 +171,7 @@ jobs:
     needs: [resolve, tag]
     # `tag` is skipped for a pushed tag; only its failure stops the release.
     if: ${{ !cancelled() && needs.resolve.outputs.release == 'true' && needs.tag.result != 'failure' }}
-    uses: krateo-platformops/.github/.github/workflows/release-oci.yaml@main
+    uses: krateo-platformops/.github/.github/workflows/release-oci.yaml@f25d6b526bde39f37bca6a4eb8c493bf4c2bbec1 # main 2026-11-17
     permissions:
       contents: read
       packages: write
@@ -364,7 +364,7 @@ jobs:
   index:
     needs: [resolve, index-package]
     if: ${{ !cancelled() && needs.index-package.outputs.publish == 'true' }}
-    uses: krateo-blueprints/charts/.github/workflows/publish-chart.yaml@main
+    uses: krateo-blueprints/charts/.github/workflows/publish-chart.yaml@33c79510d5042e0fcb5227176bd138d993cb4ef6 # 1.2.0
     permissions:
       contents: read
     with:
