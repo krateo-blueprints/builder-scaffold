@@ -48,6 +48,21 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # krateo-blueprints/charts PUBLISHING.md rule 12: the release runs this repository's preflight before it publishes
+  # anything, and the pushing job needs it. The shared job first refuses a version that is not a plain X.Y.Z (rule
+  # 13's pattern, the one publish-chart refuses at index time), so nothing is pushed that could never be indexed;
+  # then it runs hack/release-preflight if this repository has one.
+  # Only for a plain release: this workflow also publishes pre-releases to GHCR (rule 13 allows that), and a
+  # push to main releases nothing.
+  release-preflight:
+    needs: resolve
+    if: needs.resolve.outputs.release == 'true' && !contains(needs.resolve.outputs.version, '-')
+    uses: krateo-blueprints/charts/.github/workflows/release-preflight.yaml@70095ab05f1c5dc6c8dd39d0b1fdbbc7382a841c # 1.4.3
+    permissions:
+      contents: read
+    with:
+      version: ${{ needs.resolve.outputs.version }}
+
   resolve:
     runs-on: ubuntu-latest
     outputs:
@@ -168,9 +183,12 @@ jobs:
         run: git tag "$VERSION" "$GITHUB_SHA" && git push origin "refs/tags/$VERSION"
 
   oci:
-    needs: [resolve, tag]
+    needs:
+      - resolve
+      - tag
+      - release-preflight
     # `tag` is skipped for a pushed tag; only its failure stops the release.
-    if: ${{ !cancelled() && needs.resolve.outputs.release == 'true' && needs.tag.result != 'failure' }}
+    if: ${{ !cancelled() && needs.resolve.outputs.release == 'true' && needs.tag.result != 'failure' && needs.release-preflight.result != 'failure' }}
     uses: krateo-platformops/.github/.github/workflows/release-oci.yaml@e1d3e99215e80ae56eca4a67e9e061b2c73168b8 # 1.0.0
     permissions:
       contents: read
@@ -364,7 +382,7 @@ jobs:
   index:
     needs: [resolve, index-package]
     if: ${{ !cancelled() && needs.index-package.outputs.publish == 'true' }}
-    uses: krateo-blueprints/charts/.github/workflows/publish-chart.yaml@aea92de356085f50ea45477a4e6ae2b026cd6b14 # 1.4.2
+    uses: krateo-blueprints/charts/.github/workflows/publish-chart.yaml@70095ab05f1c5dc6c8dd39d0b1fdbbc7382a841c # 1.4.3
     permissions:
       contents: read
     with:
