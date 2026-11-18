@@ -2,8 +2,8 @@
 #
 # A Krateo builder (the Blueprint Composer or the Portal Builder) seeded this file from
 # krateo-blueprints/builder-scaffold. A seeded repository never receives scaffold updates, so this
-# file stays a thin wrapper: packaging and pushing live in the org's release-oci.yaml@main, and a fix
-# made there reaches every seeded repository without touching any of them.
+# file stays a thin wrapper: packaging and pushing live in the org's release-oci.yaml, pinned by commit
+# below, so a fix made there reaches this repository when that pin is moved, not before.
 #
 # What releases, and when:
 #   • A push to main whose Chart.yaml carries a literal version (MAJOR.MINOR.PATCH, optionally with a
@@ -190,7 +190,7 @@ jobs:
     # `tag` is skipped for a pushed tag, and release-preflight for a pre-release; each must have succeeded or been
     # skipped. The results are enumerated, because "not failure" would also let a cancelled job through.
     if: ${{ !cancelled() && needs.resolve.outputs.release == 'true' && (needs.tag.result == 'success' || needs.tag.result == 'skipped') && (needs.release-preflight.result == 'success' || needs.release-preflight.result == 'skipped') }}
-    uses: krateo-platformops/.github/.github/workflows/release-oci.yaml@e1d3e99215e80ae56eca4a67e9e061b2c73168b8 # 1.0.0
+    uses: krateo-platformops/.github/.github/workflows/release-oci.yaml@3ff640fd0dbef64c29b7a63a88b98da7f99e8052 # 1.0.1
     permissions:
       contents: read
       packages: write
