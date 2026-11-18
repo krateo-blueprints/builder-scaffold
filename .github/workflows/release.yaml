@@ -187,8 +187,9 @@ jobs:
       - resolve
       - tag
       - release-preflight
-    # `tag` is skipped for a pushed tag; only its failure stops the release.
-    if: ${{ !cancelled() && needs.resolve.outputs.release == 'true' && needs.tag.result != 'failure' && needs.release-preflight.result != 'failure' }}
+    # `tag` is skipped for a pushed tag, and release-preflight for a pre-release; each must have succeeded or been
+    # skipped. The results are enumerated, because "not failure" would also let a cancelled job through.
+    if: ${{ !cancelled() && needs.resolve.outputs.release == 'true' && (needs.tag.result == 'success' || needs.tag.result == 'skipped') && (needs.release-preflight.result == 'success' || needs.release-preflight.result == 'skipped') }}
     uses: krateo-platformops/.github/.github/workflows/release-oci.yaml@e1d3e99215e80ae56eca4a67e9e061b2c73168b8 # 1.0.0
     permissions:
       contents: read
