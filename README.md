@@ -14,7 +14,9 @@ the one the person actually built. `main` receives none of it until the pull req
 
 | File | Why |
 | --- | --- |
-| `.github/workflows/release.yaml` | Releases the chart. It is a thin wrapper around `krateo-platformops/.github` `release-oci.yaml@main` and `krateo-blueprints/charts` `publish-chart.yaml@main`, because a seeded repository never receives scaffold updates. Packaging and index fixes land in those workflows and reach every repository from there. |
+| `.github/workflows/release.yaml` | Releases the chart. It is a thin wrapper around `krateo-platformops/.github` `release-oci.yaml` and `krateo-blueprints/charts` `publish-chart.yaml`, each pinned by commit. A seeded repository never receives scaffold updates, so packaging and index fixes reach it when its pins move, not before. |
+| `.github/dependabot.yml` | Proposes each pin move as a pull request, so a seeded repository's pins never freeze and a breaking change in a shared workflow arrives as a reviewable diff, not a broken release. |
+| `.github/workflows/security.yml`, `.github/workflows/pinned-uses.yaml` | The org security pipeline, and the check that every reusable workflow is pinned by commit. |
 | `.helmignore` | The chart sits at the repository root, so without it the package would carry `.git/`, `.github/` and the other repository files. |
 | `.gitignore` | Keeps build output (`charts/`, `dist/`, `*.tgz`) out of git. |
 
@@ -74,7 +76,7 @@ run finds the tag and treats the version as already released.
 The portal's Marketplace lists the blueprints index at
 `https://krateo-blueprints.github.io/charts/blueprints/index.yaml`. After the push, the release
 packages the chart once more for that index and hands it to `krateo-blueprints/charts`
-`publish-chart.yaml@main`, which stores the package in that repository's releases and merges its
+`publish-chart.yaml` (pinned by commit), which stores the package in that repository's releases and merges its
 entry into the index. The portal reads the live index beside its curated catalog, so the blueprint
 gets a card, and an Install that pre-fills it, without a new catalog release.
 
