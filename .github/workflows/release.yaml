@@ -72,7 +72,7 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       oci_repo: ${{ steps.v.outputs.oci_repo }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           # Every tag comes with the full history, and "has this version been released?" is a tag lookup.
           fetch-depth: 0
@@ -178,7 +178,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - env:
           VERSION: ${{ needs.resolve.outputs.version }}
         run: git tag "$VERSION" "$GITHUB_SHA" && git push origin "refs/tags/$VERSION"
@@ -210,7 +210,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - env:
@@ -285,7 +285,7 @@ jobs:
           echo "ok=true" >> "$GITHUB_OUTPUT"
 
       - if: steps.token.outputs.ok == 'true'
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
