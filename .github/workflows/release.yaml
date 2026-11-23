@@ -58,7 +58,7 @@ jobs:
   release-preflight:
     needs: resolve
     if: needs.resolve.outputs.release == 'true' && !contains(needs.resolve.outputs.version, '-')
-    uses: krateo-blueprints/charts/.github/workflows/release-preflight.yaml@70095ab05f1c5dc6c8dd39d0b1fdbbc7382a841c # 1.4.3
+    uses: krateo-blueprints/charts/.github/workflows/release-preflight.yaml@f0bbd3da219685bafb130e77922c192558972a43 # 1.4.4
     permissions:
       contents: read
     with:
