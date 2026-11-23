@@ -367,7 +367,7 @@ jobs:
           echo "publish=true" >> "$GITHUB_OUTPUT"
 
       - if: steps.p.outputs.publish == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           # The name and the layout (the .tgz at the root) publish-chart.yaml downloads.
           name: charts-dist
